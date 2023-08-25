@@ -1,4 +1,5 @@
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -22,11 +23,12 @@ int get_socket(){
 }
 
 
-void start_scan(int socketfd, char *host, int start_port, int end_port,char *scan_time){
+int start_scan(int socketfd, char *host, int start_port, int end_port,char *scan_time){
     int *port_numbers = NULL; //Pointer to port number array
     int num_ports = 0; //start value for array
     int scan_round;
     int check_port;
+    int chosen_port;
 
     struct addrinfo hints;
 
@@ -35,7 +37,7 @@ void start_scan(int socketfd, char *host, int start_port, int end_port,char *sca
     
 
                     
-    port_numbers = (int *)realloc(port_numbers,0);
+    port_numbers = (int *) malloc(100*sizeof(int));
     
     if (strcmp(scan_time, "short") == 0){
         scan_round = 3; 
@@ -68,17 +70,17 @@ void start_scan(int socketfd, char *host, int start_port, int end_port,char *sca
     struct sockaddr_in *port_number = (struct sockaddr_in *) result->ai_addr;
 
     while(scan_round>0) {
-        check_port = 1;
 
         for(int port = start_port; port<=end_port; port++){
             //konverting the port number from host to short (netzwerk byte reihenfolge)
+            check_port = 1;
             port_number->sin_port = htons(port);
 
             int connection = connect(socketfd,result->ai_addr, result->ai_addrlen);
 
             if(connection == 0){
                 // Check if Connection is already part of array
-                for (int i = 0; i < sizeof(port_numbers); i++){
+                for (int i = 0; i <= sizeof(port_numbers); i++){
                     if (port_numbers[i] == port){
                         check_port = 0;
                     };
@@ -86,7 +88,8 @@ void start_scan(int socketfd, char *host, int start_port, int end_port,char *sca
                 
                 if(check_port == 1){
                     printf("Port %d is open\n",port);
-                    port_numbers = (int *)realloc(port_numbers,port);
+                    port_numbers[num_ports] = port;
+                    num_ports++;
                     //Close existing socket and create new one
                     close(socketfd);
                     socketfd = get_socket();
@@ -98,6 +101,10 @@ void start_scan(int socketfd, char *host, int start_port, int end_port,char *sca
     }
     freeaddrinfo(result);
 
+    printf("Please chose your Port of Interest: ");
+    scanf("%d", &chosen_port); 
+
+    return chosen_port;
 }
 
 char *network_find()
@@ -201,8 +208,13 @@ char *network_find()
 int main(int argc, char *argv[]){
     unsigned int start_port = 0;
     unsigned int end_port = 0;
+    unsigned int chosen_port = 1;
+    struct sockaddr_in address;
+    int connection,response;
     char * host;
     char scan_time[10]; 
+    char* message;
+    char buffer[1024] = {0};
     
     if(argc < 2){
         printf("%s: use \"-h\" for help\n", argv[0]);
@@ -262,7 +274,7 @@ int main(int argc, char *argv[]){
     }
 
     //Set up a socket to use.
-    int socket = get_socket();
+    int new_socket = get_socket();
 
     //check that end port is < 65535
     if(start_port <= 0){
@@ -276,7 +288,34 @@ int main(int argc, char *argv[]){
 
 
     //start scanning
-    start_scan(socket,host,start_port,end_port,scan_time);
+    chosen_port = start_scan(new_socket,host,start_port,end_port,scan_time);
+
+    //Connecting to chosen IP and port
+    printf("Connecting to Network...\n");
+    
+    address.sin_family = AF_INET;
+    
+    if(inet_pton(AF_INET, host, &address.sin_addr)<= 0){
+        printf("Address Invalid.");
+        return -1;
+    };
+
+    address.sin_port = htons(chosen_port);
+    int socket_final = socket(AF_INET, SOCK_STREAM, 0);
+
+    connection = connect(socket_final,(struct sockaddr*) &address,sizeof(address));
+
+    if(connection<0){
+        printf("\nConnection Failed \n");
+        return -1;
+    }
+    
+    //send message
+    message = "Hello from client"; 
+    send(socket_final, message, strlen(message), 0);
+    
+    response = read(socket_final, buffer, 1024);
+    printf("%s\n", buffer);
 }
 
 
